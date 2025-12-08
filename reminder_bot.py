@@ -28,6 +28,9 @@ def get_incomplete_tasks():
     # Get all tasks for today
     all_tasks = get_tasks_for_day(day_name)
 
+    # Filter out duty tasks - only regular tasks should be reminded about
+    all_tasks = [task for task in all_tasks if task.get("type") != "duty"]
+
     # Get completed tasks from slack_routine_state
     completed_tasks = get_completed_tasks(debug_mode=False)
     completed_names = [name.upper() for name in completed_tasks.keys()]

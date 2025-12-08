@@ -124,14 +124,20 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
                     text=message_data["text"],
                     blocks=message_data.get("blocks"),
                 )
-                set_thread_ts(response["ts"], debug_mode=True)
+                message_ts = response["ts"]
+                set_thread_ts(message_ts, debug_mode=True)
 
+                # Pin Monday debug messages
                 if is_monday:
                     try:
-                        client.pins_add(channel=CHANNEL_ID, timestamp=message_ts)
-                        print("📌 Понедельничное сообщение закреплено в канале")
+                        client.pins_add(
+                            channel=Config.SLACK_CHANNEL_ID, timestamp=message_ts
+                        )
+                        logger.info(f"📌 Debug Monday message pinned: {message_ts}")
                     except Exception as pin_error:
-                        print(f"⚠️ Не удалось закрепить сообщение: {pin_error}")
+                        logger.warning(
+                            f"⚠️ Could not pin debug Monday message: {pin_error}"
+                        )
 
                 # Determine what was sent
                 message_type = (
@@ -142,7 +148,7 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
 
                 say(
                     text=f"<@{user}> отправил debug сообщение: {message_type}",
-                    thread_ts=response["ts"],  # In the thread of the new message
+                    thread_ts=message_ts,  # In the thread of the new message
                 )
                 logger.info(f"Debug message sent by user {user}: {message_type}")
                 return
@@ -410,6 +416,18 @@ def handle_open_modal(ack, body, client):
     ack()
 
     try:
+        # Determine debug mode from the message thread
+        message_ts = body.get("message", {}).get("ts")
+        debug_mode = False
+
+        # Check if message is in debug thread
+        debug_thread_ts = get_thread_ts(debug_mode=True)
+        if message_ts == debug_thread_ts:
+            debug_mode = True
+            logger.info("Modal opened in DEBUG mode")
+        else:
+            logger.info("Modal opened in PRODUCTION mode")
+
         # Get current day's tasks
         today = datetime.datetime.now()
         day_name = today.strftime("%A")
@@ -419,7 +437,7 @@ def handle_open_modal(ack, body, client):
         regular_tasks = [t for t in tasks if t.get("type") != "duty"]
 
         # Get already completed tasks
-        completed_tasks = get_completed_tasks(debug_mode=False)
+        completed_tasks = get_completed_tasks(debug_mode=debug_mode)
         completed_names = [name.upper() for name in completed_tasks.keys()]
 
         # Build checkbox options
@@ -459,12 +477,16 @@ def handle_open_modal(ack, body, client):
             )
 
         # Create modal view
+        modal_title = "🔧 DEBUG: Отметить" if debug_mode else "Отметить задачи"
         modal_view = {
             "type": "modal",
             "callback_id": "task_completion_submit",
-            "title": {"type": "plain_text", "text": "Отметить задачи"},
+            "title": {"type": "plain_text", "text": modal_title},
             "submit": {"type": "plain_text", "text": "Готово"},
             "close": {"type": "plain_text", "text": "Отмена"},
+            "private_metadata": str(
+                debug_mode
+            ),  # Pass debug mode to submission handler
             "blocks": [
                 {
                     "type": "section",
@@ -500,6 +522,12 @@ def handle_modal_submission(ack, body, client, view):
     try:
         user_id = body["user"]["id"]
 
+        # Get debug mode from private_metadata
+        debug_mode = view.get("private_metadata", "False") == "True"
+        logger.info(
+            f"Modal submission in {'DEBUG' if debug_mode else 'PRODUCTION'} mode"
+        )
+
         # Get selected tasks
         values = view["state"]["values"]
         task_selection = values.get("task_selection", {}).get("selected_tasks", {})
@@ -517,7 +545,7 @@ def handle_modal_submission(ack, body, client, view):
         task_deadlines = get_task_deadlines()
 
         # Get thread_ts
-        thread_ts = get_thread_ts(debug_mode=False)
+        thread_ts = get_thread_ts(debug_mode=debug_mode)
 
         # Process each selected task
         completed_tasks = []
@@ -529,7 +557,7 @@ def handle_modal_submission(ack, body, client, view):
             if task_name == "none":
                 continue
 
-            ok, msg = record_task(task_name, user_id, debug_mode=False)
+            ok, msg = record_task(task_name, user_id, debug_mode=debug_mode)
 
             if ok:
                 completed_tasks.append(task_name)
@@ -553,8 +581,10 @@ def handle_modal_submission(ack, body, client, view):
         # Send confirmation message
         if completed_tasks:
             if thread_ts:
+                debug_prefix = "🔧 DEBUG: " if debug_mode else ""
+
                 confirmation = (
-                    f"<@{user_id}> отметил(а) выполненные задачи:\n• "
+                    f"{debug_prefix}<@{user_id}> отметил(а) выполненные задачи:\n• "
                     + "\n• ".join(completed_tasks)
                     + " ✅"
                 )
