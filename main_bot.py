@@ -126,6 +126,13 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
                 )
                 set_thread_ts(response["ts"], debug_mode=True)
 
+                if is_monday:
+                    try:
+                        client.pins_add(channel=CHANNEL_ID, timestamp=message_ts)
+                        print("📌 Понедельничное сообщение закреплено в канале")
+                    except Exception as pin_error:
+                        print(f"⚠️ Не удалось закрепить сообщение: {pin_error}")
+
                 # Determine what was sent
                 message_type = (
                     "weekly (Monday)"
@@ -513,21 +520,19 @@ def handle_modal_submission(ack, body, client, view):
         thread_ts = get_thread_ts(debug_mode=False)
 
         # Process each selected task
-        completed_count = 0
+        completed_tasks = []
         late_tasks = []
 
         for option in selected_options:
             task_name = option["value"]
 
-            # Skip "none" placeholder
             if task_name == "none":
                 continue
 
-            # Record task
             ok, msg = record_task(task_name, user_id, debug_mode=False)
 
             if ok:
-                completed_count += 1
+                completed_tasks.append(task_name)
 
                 # Check deadline
                 deadline = task_deadlines.get(task_name)
@@ -546,9 +551,13 @@ def handle_modal_submission(ack, body, client, view):
                         late_tasks.append(f"• {task_name} (опоздание: {delay_text})")
 
         # Send confirmation message
-        if completed_count > 0:
+        if completed_tasks:
             if thread_ts:
-                confirmation = f"<@{user_id}> отметил(а) {completed_count} задач(и) как выполненные ✅"
+                confirmation = (
+                    f"<@{user_id}> отметил(а) выполненные задачи:\n• "
+                    + "\n• ".join(completed_tasks)
+                    + " ✅"
+                )
 
                 if late_tasks:
                     confirmation += f"\n\n⚠️ *Выполнено с опозданием:*\n" + "\n".join(
@@ -560,7 +569,6 @@ def handle_modal_submission(ack, body, client, view):
                     text=confirmation,
                     thread_ts=thread_ts,
                 )
-                logger.info(f"User {user_id} completed {completed_count} tasks")
 
     except Exception as e:
         logger.error(f"Error handling modal submission: {e}")
