@@ -30,10 +30,16 @@ def load_state(debug_mode: bool = False) -> Dict[str, Any]:
         key = Config.DEBUG_ROUTINE_STATE if debug_mode else Config.SLACK_ROUTINE_STATE
         data = r.get(key)
         if data:
-            return json.loads(data)
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing JSON from Redis key '{key}': {e}")
+                logger.error(f"Corrupted data: {data[:200]}")  # Log first 200 chars
+                # Return empty state to allow system to continue
+                return {}
         return {}
-    except (redis.RedisError, json.JSONDecodeError) as e:
-        logger.error(f"Error loading state (debug_mode={debug_mode}): {e}")
+    except redis.RedisError as e:
+        logger.error(f"Redis error loading state (debug_mode={debug_mode}): {e}")
         return {}
 
 
@@ -41,11 +47,14 @@ def save_state(state: Dict[str, Any], debug_mode: bool = False) -> bool:
     """Save routine state (normal or debug mode)."""
     try:
         key = Config.DEBUG_ROUTINE_STATE if debug_mode else Config.SLACK_ROUTINE_STATE
-        r.set(key, json.dumps(state))
-        logger.debug(f"State saved successfully (debug_mode={debug_mode})")
+        # Ensure state is serializable
+        json_data = json.dumps(state, ensure_ascii=False, indent=2)
+        r.set(key, json_data)
+        logger.debug(f"State saved successfully to '{key}' (debug_mode={debug_mode})")
         return True
-    except (redis.RedisError, json.JSONDecodeError) as e:
-        logger.error(f"Error saving state (debug_mode={debug_mode}): {e}")
+    except (redis.RedisError, TypeError, ValueError) as e:
+        logger.error(f"Error saving state to '{key}' (debug_mode={debug_mode}): {e}")
+        logger.error(f"State data: {state}")
         return False
 
 
@@ -179,21 +188,28 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
 
     if day_override:
         day_name = day_override.capitalize()
-        date_str = today.strftime("%d %B") + f" ({day_name})"
         # For day_override use current date in dd/mm format
         current_date = today.strftime("%d/%m")
     else:
         day_name = today.strftime("%A")
-        date_str = today.strftime("%d %B (%A)")
         current_date = today.strftime("%d/%m")
 
     # Get tasks for the day (filter out duty tasks for regular daily messages)
     tasks = get_tasks_for_day(day_name)
     tasks = [t for t in tasks if t.get("type") != "duty"]
 
-    # Form header
+    # Form header with new format
     debug_prefix = "🔧 DEBUG: " if debug_mode else ""
-    header = f"{debug_prefix}🎓 Routine tasks for *{date_str}*"
+    today_full = today.strftime("%d/%m/%Y")
+    day_name_ru = {
+        "Monday": "понедельник",
+        "Tuesday": "вторник",
+        "Wednesday": "среда",
+        "Thursday": "четверг",
+        "Friday": "пятница",
+    }.get(day_name, day_name)
+
+    header = f"{debug_prefix}🎓 Сегодня {today_full} ({day_name_ru})"
 
     # Check if this is a special date
     special_info = check_special_date(current_date)
@@ -848,13 +864,20 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
     message_parts = []
 
     # Weekly header with dates
+    today_full = today.strftime("%d/%m/%Y")
+    day_name_ru = {
+        "Monday": "понедельник",
+        "Tuesday": "вторник",
+        "Wednesday": "среда",
+        "Thursday": "четверг",
+        "Friday": "пятница",
+    }.get(day_name, day_name)
+
     if week_dates and len(week_dates) == 5:
         week_range = f"{week_dates[0]} - {week_dates[4]}"
-        header = (
-            f"{debug_prefix}📅 *Неделя {week_range}*\n🎓 Routine tasks for *{date_str}*"
-        )
+        header = f"{debug_prefix}📅 Неделя {week_range}\n\n🎓 Сегодня {today_full} ({day_name_ru})"
     else:
-        header = f"{debug_prefix}🎓 Routine tasks for *{date_str}*"
+        header = f"{debug_prefix}🎓 Сегодня {today_full} ({day_name_ru})"
 
     # Check if this is a special date
     special_info = check_special_date(current_date)
@@ -865,7 +888,7 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
 
     # Duty assignments section
     if duty_tasks:
-        message_parts.append("\n*📋 Дежурства на неделю:*")
+        message_parts.append("\n📋 Дежурства на неделю:")
 
         for duty in duty_tasks:
             duty_name = duty.get("name", "")
@@ -888,7 +911,7 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
     if not regular_tasks:
         message_parts.append("\n_Нет обычных задач на сегодня_")
     else:
-        message_parts.append("\n*📝 Задачи на сегодня:*")
+        message_parts.append("\n📝 Задачи на сегодня:")
 
         grouped_tasks = group_tasks_by_period(regular_tasks)
 
