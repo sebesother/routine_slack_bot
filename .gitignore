@@ -1,2 +1,5 @@
 task_base.json
 employees.json
+tmp.json
+upload_employees.py
+ignore_data/
