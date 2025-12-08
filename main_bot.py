@@ -12,7 +12,10 @@ from redis_bot import (
     find_employee_by_username,
     find_task_by_pattern,
     find_task_in_text,
+    generate_message_blocks,
     generate_message_from_redis,
+    generate_weekly_message_blocks,
+    generate_weekly_message_from_redis,
     get_completed_tasks,
     get_task_deadlines,
     get_tasks_for_day,
@@ -35,18 +38,47 @@ Config.validate_required_env_vars()
 app = App(token=Config.SLACK_BOT_TOKEN)
 
 
-def generate_message(day_override: Optional[str] = None) -> str:
-    """Generate message for debug mode."""
+def generate_debug_message(day_override: Optional[str] = None, is_monday: bool = False):
+    """
+    Generate message for debug mode with Block Kit support.
+
+    Args:
+        day_override: Override day name (e.g., "Monday")
+        is_monday: If True, generate weekly message with duties
+
+    Returns:
+        Dict with 'text' and 'blocks' for Block Kit format
+    """
     try:
-        message = generate_message_from_redis(
-            day_override=day_override, debug_mode=True
-        )
-        if "_Нет задач на сегодня_" in message:
+        if is_monday:
+            # Generate weekly message with duty assignments
+            message_data = generate_weekly_message_blocks(debug_mode=True)
+            logger.info("Generated debug weekly message (Monday)")
+        else:
+            # Generate regular daily message
+            message_data = generate_message_blocks(
+                day_override=day_override, debug_mode=True
+            )
+            logger.info(f"Generated debug daily message (day_override={day_override})")
+
+        # Check for empty message
+        message_text = message_data.get("text", "")
+        if (
+            "_Нет задач на сегодня_" in message_text
+            or "_Нет обычных задач на сегодня_" in message_text
+        ):
             logger.warning("Tasks not found in Redis, using fallback logic")
-        return message
+
+        return message_data
     except Exception as e:
         logger.error(f"Error generating debug message: {e}")
-        return "❌ Error generating debug message"
+        fallback = "❌ Error generating debug message"
+        return {
+            "text": fallback,
+            "blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": fallback}}
+            ],
+        }
 
 
 @app.event("app_mention")
@@ -65,27 +97,54 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
         if "debug" in text.lower():
             try:
                 debug_text = text.lower()
-                day_override = "Monday" if "monday" in debug_text else None
-                message = generate_message(day_override=day_override)
+
+                # Detect debug mode type
+                is_monday = "monday" in debug_text or "weekly" in debug_text
+                day_override = None
+
+                if "monday" in debug_text:
+                    day_override = "Monday"
+                elif "tuesday" in debug_text:
+                    day_override = "Tuesday"
+                elif "wednesday" in debug_text:
+                    day_override = "Wednesday"
+                elif "thursday" in debug_text:
+                    day_override = "Thursday"
+                elif "friday" in debug_text:
+                    day_override = "Friday"
+
+                # Generate appropriate message
+                message_data = generate_debug_message(
+                    day_override=day_override, is_monday=is_monday
+                )
 
                 # Create new message with tasks
                 response = client.chat_postMessage(
-                    channel=Config.SLACK_CHANNEL_ID, text=message
+                    channel=Config.SLACK_CHANNEL_ID,
+                    text=message_data["text"],
+                    blocks=message_data.get("blocks"),
                 )
                 set_thread_ts(response["ts"], debug_mode=True)
 
+                # Determine what was sent
+                message_type = (
+                    "weekly (Monday)"
+                    if is_monday
+                    else f"daily ({day_override or 'today'})"
+                )
+
                 say(
-                    text=f"<@{user}> sent task message (debug mode)",
+                    text=f"<@{user}> отправил debug сообщение: {message_type}",
                     thread_ts=response["ts"],  # In the thread of the new message
                 )
-                logger.info(f"Debug message sent by user {user}")
+                logger.info(f"Debug message sent by user {user}: {message_type}")
                 return
 
             except Exception as e:
                 logger.error(f"Error handling debug command: {e}")
                 # Reply in original thread
                 say(
-                    text=f"<@{user}> ❌ Error sending debug message",
+                    text=f"<@{user}> ❌ Ошибка отправки debug сообщения",
                     thread_ts=thread_ts,
                 )
                 return

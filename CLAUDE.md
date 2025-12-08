@@ -166,6 +166,11 @@ python reminder_bot.py
 - Prefixes messages with "🔧 DEBUG:"
 - Allows testing without affecting production tracking
 - Thread detection: bot determines mode by comparing `thread_ts`
+- Supports all features: weekly duties, special dates, interactive modal
+- Commands:
+  - `@bot debug` - Test today's message
+  - `@bot debug monday` or `@bot debug weekly` - Test Monday weekly message
+  - `@bot debug tuesday/wednesday/thursday/friday` - Test specific day
 
 **Special Dates:**
 - Dates marked in `employees.special_dates` trigger special notifications
@@ -201,22 +206,44 @@ python reminder_bot.py
 
 ## Slack Command Reference
 
-**Task Completion:**
-- `@bot TaskName done` - Mark task complete
-- `@bot debug` - Send debug task list for today
-- `@bot debug monday` - Send debug task list for Monday
+### Task Completion
 
-**Weekly Duty Management:**
-- `/set-duty <type> @username <week>` - Assign user to weekly duty
-- `/set-duty <type> <week>` - Clear duty assignment
+**Interactive Modal (recommended):**
+- Click "✅ Отметить выполненные" button in daily message
+- Select tasks from checklist
+- Submit to complete multiple tasks at once
 
-**Examples:**
+**Text Command (alternative):**
+- `@bot TaskName done` - Mark single task complete
+
+### Debug Mode
+
+Test functionality without affecting production:
+
+```
+@bot debug              # Test today's message
+@bot debug monday       # Test Monday weekly message with duties
+@bot debug weekly       # Same as debug monday
+@bot debug tuesday      # Test Tuesday message
+@bot debug wednesday    # Test Wednesday message
+@bot debug thursday     # Test Thursday message
+@bot debug friday       # Test Friday message
+```
+
+### Weekly Duty Management
+
+**Assign duty:**
 ```
 /set-duty fin @d.ciruks current       # Assign to current week
 /set-duty asana @a.vaver next         # Assign to next week
 /set-duty tg @i.konovalov 09/12      # Assign to specific week
-/set-duty fin current                 # Clear assignment
 ```
 
-**Available duty types:** fin, asana, tg, notification, supervision
+**Clear assignment:**
+```
+/set-duty fin current                 # Clear current week
+/set-duty asana 16/12                # Clear specific week
+```
+
+**Available duty types:** fin, asana, tg, notification, supervision  
 **Week formats:** current, next, dd/mm (Monday date)

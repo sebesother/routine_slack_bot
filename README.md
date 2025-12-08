@@ -50,8 +50,32 @@ This bot system helps teams manage daily routines by:
 ## Usage
 
 ### Task Completion
-- Complete tasks: `@bot TaskName done`
-- Debug mode: `@bot debug` or `@bot debug monday`
+
+**Interactive Modal (recommended):**
+1. Click "✅ Отметить выполненные" button in daily message
+2. Select completed tasks from checklist
+3. Submit to mark multiple tasks at once
+
+**Text Command (alternative):**
+- `@bot TaskName done` - Mark single task as complete
+
+### Debug Mode
+
+Test all functionality without affecting production data:
+
+```
+@bot debug              # Test today's message
+@bot debug monday       # Test Monday weekly message with duties
+@bot debug tuesday      # Test Tuesday message
+@bot debug weekly       # Same as debug monday
+```
+
+**Debug features:**
+- Uses separate Redis state (`debug_routine_state`)
+- Messages prefixed with "🔧 DEBUG:"
+- Creates separate thread for testing
+- Interactive button works in debug mode
+- Can test special dates and late task warnings
 
 ### Weekly Duty Management
 
