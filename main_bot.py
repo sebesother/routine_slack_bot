@@ -8,6 +8,13 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from config import Config
+from constants import (
+    DEBUG_PREFIX,
+    LOG_MESSAGES,
+    MESSAGE_TEMPLATES,
+    COMMAND_HELP,
+    MODAL_TEXT,
+)
 from redis_bot import (
     find_employee_by_username,
     find_task_by_pattern,
@@ -64,15 +71,15 @@ def generate_debug_message(day_override: Optional[str] = None, is_monday: bool =
         # Check for empty message
         message_text = message_data.get("text", "")
         if (
-            "_Нет задач на сегодня_" in message_text
-            or "_Нет обычных задач на сегодня_" in message_text
+            MESSAGE_TEMPLATES["no_tasks_today"] in message_text
+            or MESSAGE_TEMPLATES["no_regular_tasks"] in message_text
         ):
             logger.warning("Tasks not found in Redis, using fallback logic")
 
         return message_data
     except Exception as e:
         logger.error(f"Error generating debug message: {e}")
-        fallback = "❌ Error generating debug message"
+        fallback = f"❌ {MESSAGE_TEMPLATES['error_debug_message']}"
         return {
             "text": fallback,
             "blocks": [
@@ -147,17 +154,17 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
                 )
 
                 say(
-                    text=f"<@{user}> отправил debug сообщение: {message_type}",
+                    text=f"<@{user}> sent debug message: {message_type}",
                     thread_ts=message_ts,  # In the thread of the new message
                 )
-                logger.info(f"Debug message sent by user {user}: {message_type}")
+                logger.info(LOG_MESSAGES["debug_message_sent"].format(user=user, message_type=message_type))
                 return
 
             except Exception as e:
                 logger.error(f"Error handling debug command: {e}")
                 # Reply in original thread
                 say(
-                    text=f"<@{user}> ❌ Ошибка отправки debug сообщения",
+                    text=f"<@{user}> ❌ {MESSAGE_TEMPLATES['error_debug_message']}",
                     thread_ts=thread_ts,
                 )
                 return
@@ -169,17 +176,17 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
 
         if thread_ts == debug_thread_ts:
             debug_mode = True
-            logger.info("🔧 DEBUG MODE: используем debug_routine_state")
+            logger.info(LOG_MESSAGES["debug_mode_enabled"])
         elif thread_ts == production_thread_ts:
             debug_mode = False
-            logger.info("📋 PRODUCTION MODE: используем slack_routine_state")
+            logger.info(LOG_MESSAGES["production_mode_enabled"])
         else:
             # If not in known thread, use production by default
             debug_mode = False
             # Use production thread_ts for reply
             if production_thread_ts:
                 thread_ts = production_thread_ts
-            logger.info("📋 DEFAULT MODE: используем slack_routine_state")
+            logger.info(LOG_MESSAGES["default_mode_enabled"])
 
         task = find_task_in_text(text)
         if task:
@@ -197,20 +204,20 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
                     datetime.datetime.combine(ts.date(), deadline)
                 )
                 logger.info(
-                    f"⏱️ Сейчас: {ts.strftime('%H:%M:%S')} | Дедлайн для {task}: {deadline_dt.strftime('%H:%M:%S')}"
+                    f"⏱️ Now: {ts.strftime('%H:%M:%S')} | Deadline for {task}: {deadline_dt.strftime('%H:%M:%S')}"
                 )
 
                 if ts > deadline_dt:
-                    prefix = "🔧 DEBUG: " if debug_mode else ""
+                    prefix = DEBUG_PREFIX if debug_mode else ""
                     delay_minutes = int((ts - deadline_dt).total_seconds() / 60)
                     if delay_minutes < 60:
-                        delay_text = f"{delay_minutes} мин"
+                        delay_text = f"{delay_minutes} min"
                     else:
                         delay_hours = delay_minutes // 60
-                        delay_text = f"{delay_hours} ч {delay_minutes % 60} мин"
+                        delay_text = f"{delay_hours}h {delay_minutes % 60}min"
 
                     say(
-                        text=f"{prefix}<@{user}> ⚠️ {task} отмечено как выполненное (опоздание: {delay_text})",
+                        text=f"{prefix}<@{user}> ⚠️ {task} {MESSAGE_TEMPLATES['marked_as_completed']} (delay: {delay_text})",
                         thread_ts=thread_ts,
                     )
                 else:
@@ -227,9 +234,9 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
                     name="white_check_mark",
                 )
         else:
-            prefix = "🔧 DEBUG: " if debug_mode else ""
+            prefix = DEBUG_PREFIX if debug_mode else ""
             say(
-                text=f"{prefix}<@{user}> я не понял, о какой задаче речь 🤔. Напиши, например: `@bot LPB done`",
+                text=f"{prefix}<@{user}> {MESSAGE_TEMPLATES['task_not_understood']}",
                 thread_ts=thread_ts,
             )
 
@@ -237,7 +244,7 @@ def handle_task_update(event: Dict[str, Any], say, client) -> None:
         logger.error(f"Error in handle_task_update: {e}")
         try:
             say(
-                text=f"<@{user}> ❌ Произошла ошибка при обработке команды",
+                text=f"<@{user}> ❌ {MESSAGE_TEMPLATES['error_processing_command']}",
                 thread_ts=thread_ts,
             )
         except:
@@ -260,14 +267,7 @@ def handle_set_duty(ack, command, say, client):
         parts = text.split()
 
         if len(parts) < 2:
-            say(
-                "❌ Неверный формат команды\n"
-                "Использование:\n"
-                "• `/set-duty <duty-type> @username <week>` - назначить\n"
-                "• `/set-duty <duty-type> <week>` - снять назначение\n\n"
-                "Типы duty: fin, asana, tg, notification, supervision\n"
-                "Неделя: current, next, или dd/mm (дата понедельника)"
-            )
+            say(COMMAND_HELP["set_duty_usage"])
             return
 
         duty_type = parts[0].lower()
@@ -275,8 +275,9 @@ def handle_set_duty(ack, command, say, client):
         # Validate duty type
         if duty_type not in Config.DUTY_TYPES:
             say(
-                f"❌ Неизвестный тип duty: `{duty_type}`\n"
-                f"Доступные типы: {', '.join(Config.DUTY_TYPES.keys())}"
+                COMMAND_HELP["set_duty_invalid_type"].format(
+                    duty_type=duty_type, types=", ".join(Config.DUTY_TYPES.keys())
+                )
             )
             return
 
@@ -295,30 +296,29 @@ def handle_set_duty(ack, command, say, client):
             slack_user_id = find_employee_by_username(target_username)
 
             if not slack_user_id:
-                say(f"❌ Сотрудник с username '{target_username}' не найден в базе")
+                say(COMMAND_HELP["set_duty_user_not_found"].format(username=target_username))
                 return
 
             # Get week Monday
             week_monday = get_week_monday(week_input)
 
             if not week_monday:
-                say(
-                    f"❌ Не удалось определить неделю из '{week_input}'\n"
-                    "Используйте: current, next, или dd/mm"
-                )
+                say(COMMAND_HELP["set_duty_invalid_week"].format(week_input=week_input))
                 return
 
             # Validate employee for duty
             is_valid, error_msg = validate_employee_for_duty(slack_user_id, week_monday)
 
             if not is_valid:
-                say(f"❌ {error_msg}")
+                say(COMMAND_HELP["set_duty_validation_failed"].format(error_msg=error_msg))
                 return
 
             # Assign duty
             if set_weekly_duty_assignment(duty_name, week_monday, slack_user_id):
                 say(
-                    f"✅ Пользователь <@{slack_user_id}> назначен на *{duty_name}* на неделю {week_monday}"
+                    COMMAND_HELP["set_duty_assigned"].format(
+                        user_id=slack_user_id, duty_name=duty_name, week_monday=week_monday
+                    )
                 )
 
                 # If changing current week, post notification in Monday thread
@@ -333,9 +333,8 @@ def handle_set_duty(ack, command, say, client):
 
                             # Only post if we're in the same week
                             if week_dates and today.strftime("%d/%m") in week_dates:
-                                notification = (
-                                    f"📝 *Изменение дежурства:*\n"
-                                    f"<@{slack_user_id}> назначен на *{duty_name}*"
+                                notification = COMMAND_HELP["set_duty_change_notification"].format(
+                                    user_id=slack_user_id, duty_name=duty_name
                                 )
                                 client.chat_postMessage(
                                     channel=Config.SLACK_CHANNEL_ID,
@@ -348,7 +347,7 @@ def handle_set_duty(ack, command, say, client):
                     except Exception as e:
                         logger.warning(f"Could not post thread notification: {e}")
             else:
-                say("❌ Ошибка при назначении дежурства")
+                say("❌ Error assigning duty")
 
         elif len(parts) == 2:
             # Removal: /set-duty fin current
@@ -358,15 +357,12 @@ def handle_set_duty(ack, command, say, client):
             week_monday = get_week_monday(week_input)
 
             if not week_monday:
-                say(
-                    f"❌ Не удалось определить неделю из '{week_input}'\n"
-                    "Используйте: current, next, или dd/mm"
-                )
+                say(COMMAND_HELP["set_duty_invalid_week"].format(week_input=week_input))
                 return
 
             # Remove assignment
             if set_weekly_duty_assignment(duty_name, week_monday, None):
-                say(f"✅ Назначение с *{duty_name}* на неделю {week_monday} снято")
+                say(COMMAND_HELP["set_duty_removed"].format(duty_name=duty_name, week_monday=week_monday))
 
                 # If changing current week, post notification in Monday thread
                 if week_input.lower() == "current":
@@ -380,9 +376,8 @@ def handle_set_duty(ack, command, say, client):
 
                             # Only post if we're in the same week
                             if week_dates and today.strftime("%d/%m") in week_dates:
-                                notification = (
-                                    f"📝 *Изменение дежурства:*\n"
-                                    f"Назначение с *{duty_name}* снято"
+                                notification = COMMAND_HELP["set_duty_removal_notification"].format(
+                                    duty_name=duty_name
                                 )
                                 client.chat_postMessage(
                                     channel=Config.SLACK_CHANNEL_ID,
@@ -395,19 +390,14 @@ def handle_set_duty(ack, command, say, client):
                     except Exception as e:
                         logger.warning(f"Could not post thread notification: {e}")
             else:
-                say("❌ Ошибка при снятии назначения")
+                say("❌ Error removing assignment")
 
         else:
-            say(
-                "❌ Неверное количество параметров\n"
-                "Использование:\n"
-                "• `/set-duty <duty-type> @username <week>` - назначить\n"
-                "• `/set-duty <duty-type> <week>` - снять назначение"
-            )
+            say(COMMAND_HELP["set_duty_usage"])
 
     except Exception as e:
         logger.error(f"Error in handle_set_duty: {e}")
-        say("❌ Произошла ошибка при обработке команды")
+        say(f"❌ {MESSAGE_TEMPLATES['error_processing_command']}")
 
 
 @app.action("open_task_completion_modal")
@@ -424,9 +414,9 @@ def handle_open_modal(ack, body, client):
         debug_thread_ts = get_thread_ts(debug_mode=True)
         if message_ts == debug_thread_ts:
             debug_mode = True
-            logger.info("Modal opened in DEBUG mode")
+            logger.info(LOG_MESSAGES["modal_opened_debug"])
         else:
-            logger.info("Modal opened in PRODUCTION mode")
+            logger.info(LOG_MESSAGES["modal_opened_production"])
 
         # Get current day's tasks
         today = datetime.datetime.now()
@@ -453,7 +443,7 @@ def handle_open_modal(ack, body, client):
 
             # Format task display
             if deadline:
-                display_text = f"*{task_name}* до {deadline}"
+                display_text = f"*{task_name}* by {deadline}"
             else:
                 display_text = f"*{task_name}*"
 
@@ -470,27 +460,27 @@ def handle_open_modal(ack, body, client):
                 {
                     "text": {
                         "type": "plain_text",
-                        "text": "Все задачи уже выполнены ✓",
+                        "text": MODAL_TEXT["all_completed"],
                     },
                     "value": "none",
                 }
             )
 
         # Create modal view
-        modal_title = "🔧 DEBUG: Отметить" if debug_mode else "Отметить задачи"
+        modal_title = MODAL_TEXT["title_debug"] if debug_mode else MODAL_TEXT["title"]
         modal_view = {
             "type": "modal",
             "callback_id": "task_completion_submit",
             "title": {"type": "plain_text", "text": modal_title},
-            "submit": {"type": "plain_text", "text": "Готово"},
-            "close": {"type": "plain_text", "text": "Отмена"},
+            "submit": {"type": "plain_text", "text": MODAL_TEXT["submit"]},
+            "close": {"type": "plain_text", "text": MODAL_TEXT["cancel"]},
             "private_metadata": str(
                 debug_mode
             ),  # Pass debug mode to submission handler
             "blocks": [
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": "Выберите выполненные задачи:"},
+                    "text": {"type": "mrkdwn", "text": MODAL_TEXT["select_label"]},
                 },
                 {
                     "type": "input",
@@ -501,14 +491,14 @@ def handle_open_modal(ack, body, client):
                         "action_id": "selected_tasks",
                         "options": options,
                     },
-                    "label": {"type": "plain_text", "text": "Задачи"},
+                    "label": {"type": "plain_text", "text": MODAL_TEXT["tasks_label"]},
                 },
             ],
         }
 
         # Open modal
         client.views_open(trigger_id=body["trigger_id"], view=modal_view)
-        logger.info("Task completion modal opened")
+        logger.info(LOG_MESSAGES["task_completion_modal_opened"])
 
     except Exception as e:
         logger.error(f"Error opening modal: {e}")
@@ -524,9 +514,8 @@ def handle_modal_submission(ack, body, client, view):
 
         # Get debug mode from private_metadata
         debug_mode = view.get("private_metadata", "False") == "True"
-        logger.info(
-            f"Modal submission in {'DEBUG' if debug_mode else 'PRODUCTION'} mode"
-        )
+        log_msg = LOG_MESSAGES["modal_submission_debug"] if debug_mode else LOG_MESSAGES["modal_submission_production"]
+        logger.info(log_msg)
 
         # Get selected tasks
         values = view["state"]["values"]
@@ -572,25 +561,25 @@ def handle_modal_submission(ack, body, client, view):
                     if now > deadline_dt:
                         delay_minutes = int((now - deadline_dt).total_seconds() / 60)
                         if delay_minutes < 60:
-                            delay_text = f"{delay_minutes} мин"
+                            delay_text = f"{delay_minutes} min"
                         else:
                             delay_hours = delay_minutes // 60
-                            delay_text = f"{delay_hours} ч {delay_minutes % 60} мин"
-                        late_tasks.append(f"• {task_name} (опоздание: {delay_text})")
+                            delay_text = f"{delay_hours}h {delay_minutes % 60}min"
+                        late_tasks.append(f"• {task_name} (delay: {delay_text})")
 
         # Send confirmation message
         if completed_tasks:
             if thread_ts:
-                debug_prefix = "🔧 DEBUG: " if debug_mode else ""
+                debug_prefix = DEBUG_PREFIX if debug_mode else ""
 
                 confirmation = (
-                    f"{debug_prefix}<@{user_id}> отметил(а) выполненные задачи:\n• "
+                    f"{debug_prefix}<@{user_id}> {MESSAGE_TEMPLATES['marked_as_completed']} tasks:\n• "
                     + "\n• ".join(completed_tasks)
                     + " ✅"
                 )
 
                 if late_tasks:
-                    confirmation += f"\n\n⚠️ *Выполнено с опозданием:*\n" + "\n".join(
+                    confirmation += f"\n\n⚠️ *{MESSAGE_TEMPLATES['completed_late']}:*\n" + "\n".join(
                         late_tasks
                     )
 

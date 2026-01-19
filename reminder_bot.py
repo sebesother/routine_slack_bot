@@ -4,6 +4,8 @@ import os
 import pytz
 from slack_sdk import WebClient
 
+from config import Config
+from constants import MESSAGE_TEMPLATES, PERIOD_EMOJI
 from redis_bot import (
     get_completed_tasks,
     get_tasks_for_day,
@@ -13,9 +15,6 @@ from redis_bot import (
 
 client = WebClient(token=os.environ.get("SLACK_BOT_TOKEN"))
 CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID")
-
-# Hardcoded command for tagging team
-TEAM_MENTION = "<!subteam^S07BD1P55GT|@sup>"
 
 
 def get_incomplete_tasks():
@@ -55,7 +54,7 @@ def get_incomplete_tasks():
                 deadline_hour = hour
 
                 # At 13:00 don't show tasks with 16:00+ deadline
-                if current_hour == 13 and deadline_hour >= 16:
+                if current_hour == Config.REMINDER_TIME and deadline_hour >= Config.LATE_DEADLINE_THRESHOLD:
                     continue
 
                 # Check if task is overdue
@@ -86,16 +85,16 @@ def format_reminder_task_line(task, is_overdue=False):
     # Emoji for group
     period_emoji = ""
     if period == "morning":
-        period_emoji = "🌅 "
+        period_emoji = PERIOD_EMOJI["morning"]
     elif period == "evening":
-        period_emoji = "🌙 "
+        period_emoji = PERIOD_EMOJI["evening"]
 
     if is_overdue and deadline:
-        line = f"• {period_emoji}*{name}* (дедлайн был в {deadline})"
+        line = f"• {period_emoji}*{name}* (deadline was at {deadline})"
     else:
         line = f"• {period_emoji}*{name}*"
         if deadline:
-            line += f" (до {deadline})"
+            line += f" (by {deadline})"
 
     return line
 
@@ -116,12 +115,12 @@ def format_reminder_message():
     message_parts = []
 
     # Header
-    header = f"⏰ Напоминание в {current_time} - {date_str}"
+    header = f"⏰ Reminder at {current_time} - {date_str}"
     message_parts.append(header)
 
     # Overdue tasks
     if overdue_tasks:
-        message_parts.append("\n🚨 *ПРОСРОЧЕННЫЕ ЗАДАЧИ:*")
+        message_parts.append("\n🚨 *OVERDUE TASKS:*")
 
         # Group overdue tasks
         grouped_overdue = group_tasks_by_period(overdue_tasks)
@@ -135,7 +134,7 @@ def format_reminder_message():
 
     # Other incomplete tasks
     if incomplete_tasks:
-        message_parts.append("\n📋 *НЕВЫПОЛНЕННЫЕ ЗАДАЧИ:*")
+        message_parts.append("\n📋 *INCOMPLETE TASKS:*")
 
         # Group incomplete tasks
         grouped_incomplete = group_tasks_by_period(incomplete_tasks)
@@ -148,7 +147,7 @@ def format_reminder_message():
             message_parts.append(format_reminder_task_line(task))
 
     # Add team tag at the end
-    message_parts.append(f"\n{TEAM_MENTION}")
+    message_parts.append(f"\n{Config.TEAM_MENTION}")
 
     return "\n".join(message_parts)
 
@@ -158,7 +157,7 @@ def send_reminder():
     message = format_reminder_message()
 
     if not message:
-        print("ℹ️ Нет задач для напоминания")
+        print(f"ℹ️ {MESSAGE_TEMPLATES['no_reminder_tasks']}")
         return False
 
     # Get thread_ts for current day
@@ -170,16 +169,16 @@ def send_reminder():
             response = client.chat_postMessage(
                 channel=CHANNEL_ID, text=message, thread_ts=thread_ts
             )
-            print(f"✅ Напоминание отправлено в тред")
+            print(f"✅ Reminder sent to thread")
         else:
             # If no active thread, send as separate message
             response = client.chat_postMessage(channel=CHANNEL_ID, text=message)
-            print(f"✅ Напоминание отправлено отдельным сообщением")
+            print(f"✅ Reminder sent as separate message")
 
         return True
 
     except Exception as e:
-        print(f"❌ Ошибка при отправке напоминания: {e}")
+        print(f"❌ Error sending reminder: {e}")
         return False
 
 
@@ -188,7 +187,7 @@ if __name__ == "__main__":
     today = datetime.datetime.now()
     if today.weekday() < 5:  # Only working days
         current_time = today.strftime("%H:%M")
-        print(f"⏰ Запуск напоминалки в {current_time}")
+        print(f"⏰ Running reminder at {current_time}")
         send_reminder()
     else:
-        print("Сегодня выходной, напоминания не отправляются")
+        print(MESSAGE_TEMPLATES["weekend_skip"])

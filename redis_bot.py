@@ -7,6 +7,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import redis
 
 from config import Config
+from constants import (
+    DEBUG_PREFIX,
+    MESSAGE_TEMPLATES,
+    MODAL_TEXT,
+    PERIOD_LABELS,
+    PERIOD_EMOJI,
+    SPECIAL_DATE_CONFIG,
+    WEEKDAY_NAMES_EN,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -103,13 +112,13 @@ def record_task(task, user, debug_mode=False):
     today = datetime.date.today().isoformat()
 
     if state.get("date") != today:
-        return False, "Старое состояние — новое утро, нет активного треда."
+        return False, MESSAGE_TEMPLATES["old_state_no_thread"]
 
     if "completed" not in state:
         state["completed"] = {}
 
     if task in state["completed"]:
-        return False, "Эта задача уже была отмечена ранее."
+        return False, MESSAGE_TEMPLATES["task_already_completed"]
 
     now = datetime.datetime.now().strftime("%H:%M")
     state["completed"][task] = {"user": user, "time": now}
@@ -159,13 +168,13 @@ def format_task_line(task):
     if assigned_user:
         # If there's an assigned user, add them at the beginning
         if deadline:
-            task_line = f"- [<@{assigned_user}>] *{name}* до {deadline}"
+            task_line = f"- [<@{assigned_user}>] *{name}* by {deadline}"
         else:
             task_line = f"- [<@{assigned_user}>] *{name}*"
     else:
         # Regular line without assignment
         if deadline:
-            task_line = f"- [ ] *{name}* до {deadline}"
+            task_line = f"- [ ] *{name}* by {deadline}"
         else:
             task_line = f"- [ ] *{name}*"
 
@@ -197,17 +206,11 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
     tasks = [t for t in tasks if t.get("type") != "duty"]
 
     # Form header with new format
-    debug_prefix = "🔧 DEBUG: " if debug_mode else ""
+    debug_prefix = DEBUG_PREFIX if debug_mode else ""
     today_full = today.strftime("%d/%m/%Y")
-    day_name_ru = {
-        "Monday": "понедельник",
-        "Tuesday": "вторник",
-        "Wednesday": "среда",
-        "Thursday": "четверг",
-        "Friday": "пятница",
-    }.get(day_name, day_name)
+    day_name_en = WEEKDAY_NAMES_EN.get(day_name, day_name)
 
-    header = f"{debug_prefix}🎓 Сегодня {today_full} ({day_name_ru})"
+    header = f"{debug_prefix}🎓 Today {today_full} ({day_name_en})"
 
     # Check if this is a special date
     special_info = check_special_date(current_date)
@@ -216,7 +219,7 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
 
     # If no tasks
     if not tasks:
-        return header + "\n\n_Нет задач на сегодня_"
+        return header + "\n\n" + MESSAGE_TEMPLATES["no_tasks_today"]
 
     # Group tasks
     grouped_tasks = group_tasks_by_period(tasks)
@@ -236,9 +239,9 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
         employees_mention = format_employees_mention(morning_employees)
 
         if employees_mention:
-            message_parts.append(f"\n*Утро*:\n{employees_mention}")
+            message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:\n{employees_mention}")
         else:
-            message_parts.append("\n*Утро*:")
+            message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:")
 
         for task in grouped_tasks["morning"]:
             message_parts.append(format_task_line(task))
@@ -251,10 +254,10 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
 
         if employees_mention:
             message_parts.append(
-                f"\n*Вечер* _(делается после 15:00)_:\n{employees_mention}"
+                f"\n*{PERIOD_LABELS['evening']}*:\n{employees_mention}"
             )
         else:
-            message_parts.append("\n*Вечер*:")
+            message_parts.append(f"\n*{PERIOD_LABELS['evening']}*:")
 
         for task in grouped_tasks["evening"]:
             message_parts.append(format_task_line(task))
@@ -279,7 +282,7 @@ def generate_message_blocks(day_override=None, debug_mode=False):
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "✅ Отметить выполненные"},
+                    "text": {"type": "plain_text", "text": MODAL_TEXT["button_label"]},
                     "action_id": "open_task_completion_modal",
                     "style": "primary",
                 }
@@ -307,7 +310,7 @@ def generate_weekly_message_blocks(debug_mode=False):
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "✅ Отметить выполненные"},
+                    "text": {"type": "plain_text", "text": MODAL_TEXT["button_label"]},
                     "action_id": "open_task_completion_modal",
                     "style": "primary",
                 }
@@ -347,7 +350,7 @@ def get_task_names():
     task_base = load_task_base()
 
     if not task_base:
-        print("Скорее всего, Redis пуст")
+        print("Most likely, Redis is empty")
 
     names = []
     for task_id, task_data in task_base.items():
@@ -365,7 +368,7 @@ def build_task_regex():
     # Escape special characters in names (e.g., hyphens)
     escaped_names = [re.escape(name) for name in task_names]
 
-    # Create pattern: (LPB|KYC-1|Проверка KYC-2|Statements - выгрузки).*done
+    # Create pattern: (LPB|KYC-1|Check KYC-2|Statements - exports).*done
     pattern = r"(?i)(" + "|".join(escaped_names) + r").*done"
     return pattern
 
@@ -607,18 +610,10 @@ def get_special_date_header(special_info: Dict[str, str]) -> str:
     special_type = special_info.get("type", "")
     description = special_info.get("description", "")
 
-    if special_type == "christmas":
-        emoji = "🎄✨"
-        greeting = f"С праздником! {description}!"
-        notice = "⚠️ _Обратите внимание: работа в праздничный день, штат сотрудников может быть сокращен_"
-    elif special_type == "new_year":
-        emoji = "🎆❄️"
-        greeting = f"С наступающим! {description}!"
-        notice = "⚠️ _Обратите внимание: работа в праздничный день, скорость обработки может быть снижена_"
-    else:
-        emoji = "⚡"
-        greeting = f"Особый день: {description}"
-        notice = "⚠️ _Обратите внимание: особый режим работы_"
+    config = SPECIAL_DATE_CONFIG.get(special_type, SPECIAL_DATE_CONFIG["default"])
+    emoji = config["emoji"]
+    greeting = config["greeting_template"].format(description=description)
+    notice = config["notice"]
 
     return f"\n{emoji} *{greeting}*\n{notice}\n"
 
@@ -738,7 +733,7 @@ def validate_employee_for_duty(user_id: str, week_monday: str) -> Tuple[bool, st
     week_dates = get_week_dates(week_monday)
 
     if not week_dates:
-        return False, "Не удалось определить даты недели"
+        return False, "Could not determine week dates"
 
     # Find employee by slack_id
     employee = None
@@ -750,7 +745,7 @@ def validate_employee_for_duty(user_id: str, week_monday: str) -> Tuple[bool, st
             break
 
     if not employee:
-        return False, "Сотрудник не найден в базе"
+        return False, "Employee not found in database"
 
     morning_dates = employee.get("morning_dates", [])
 
@@ -758,13 +753,13 @@ def validate_employee_for_duty(user_id: str, week_monday: str) -> Tuple[bool, st
     working_days = sum(1 for date in week_dates if date in morning_dates)
 
     # Need at least 3 out of 5 days (majority)
-    if working_days >= 3:
+    if working_days >= Config.MIN_WORKING_DAYS_FOR_DUTY:
         return True, ""
     else:
-        employee_name = employee.get("name", "Сотрудник")
+        employee_name = employee.get("name", "Employee")
         return (
             False,
-            f"{employee_name} работает только {working_days} дней на этой неделе (нужно минимум 3)",
+            f"{employee_name} works only {working_days} days this week (minimum {Config.MIN_WORKING_DAYS_FOR_DUTY} required)",
         )
 
 
@@ -863,19 +858,13 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
 
     # Weekly header with dates
     today_full = today.strftime("%d/%m/%Y")
-    day_name_ru = {
-        "Monday": "понедельник",
-        "Tuesday": "вторник",
-        "Wednesday": "среда",
-        "Thursday": "четверг",
-        "Friday": "пятница",
-    }.get(day_name, day_name)
+    day_name_en = WEEKDAY_NAMES_EN.get(day_name, day_name)
 
     if week_dates and len(week_dates) == 5:
         week_range = f"{week_dates[0]} - {week_dates[4]}"
-        header = f"{debug_prefix}📅 Неделя {week_range}\n\n🎓 Сегодня {today_full} ({day_name_ru})"
+        header = f"{debug_prefix}📅 Week {week_range}\n\n🎓 Today {today_full} ({day_name_en})"
     else:
-        header = f"{debug_prefix}🎓 Сегодня {today_full} ({day_name_ru})"
+        header = f"{debug_prefix}🎓 Today {today_full} ({day_name_en})"
 
     # Check if this is a special date
     special_info = check_special_date(current_date)
@@ -886,7 +875,7 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
 
     # Duty assignments section
     if duty_tasks:
-        message_parts.append("\n📋 Дежурства на неделю:")
+        message_parts.append("\n📋 Duties for the week:")
 
         for duty in duty_tasks:
             duty_name = duty.get("name", "")
@@ -898,7 +887,7 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
             if assigned_user:
                 duty_line = f"• *{duty_name}* → <@{assigned_user}>"
             else:
-                duty_line = f"• *{duty_name}* → _не назначено_"
+                duty_line = f"• *{duty_name}* → _not assigned_"
 
             if duty_desc:
                 duty_line += f"\n  _{duty_desc}_"
@@ -907,9 +896,9 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
 
     # Regular tasks section
     if not regular_tasks:
-        message_parts.append("\n_Нет обычных задач на сегодня_")
+        message_parts.append("\n" + MESSAGE_TEMPLATES["no_regular_tasks"])
     else:
-        message_parts.append("\n📝 Задачи на сегодня:")
+        message_parts.append("\n📝 Tasks for today:")
 
         grouped_tasks = group_tasks_by_period(regular_tasks)
 
@@ -926,9 +915,9 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
             employees_mention = format_employees_mention(morning_employees)
 
             if employees_mention:
-                message_parts.append(f"\n*Утро*:\n{employees_mention}")
+                message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:\n{employees_mention}")
             else:
-                message_parts.append("\n*Утро*:")
+                message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:")
 
             for task in grouped_tasks["morning"]:
                 message_parts.append(format_task_line(task))
@@ -942,10 +931,10 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
 
             if employees_mention:
                 message_parts.append(
-                    f"\n*Вечер* _(делается после 15:00)_:\n{employees_mention}"
+                    f"\n*{PERIOD_LABELS['evening']}*:\n{employees_mention}"
                 )
             else:
-                message_parts.append("\n*Вечер*:")
+                message_parts.append(f"\n*{PERIOD_LABELS['evening']}*:")
 
             for task in grouped_tasks["evening"]:
                 message_parts.append(format_task_line(task))

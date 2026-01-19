@@ -3,6 +3,7 @@ import os
 
 from slack_sdk import WebClient
 
+from constants import MESSAGE_TEMPLATES
 from redis_bot import (
     generate_message_blocks,
     generate_message_from_redis,
@@ -23,22 +24,22 @@ def generate_message():
     if is_monday:
         # Monday: send weekly message with duty assignments
         message_data = generate_weekly_message_blocks()
-        print("📅 Генерация понедельничного сообщения с дежурствами")
+        print("📅 Generating Monday message with duties")
     else:
         # Tuesday-Friday: send regular daily message
         message_data = generate_message_blocks()
-        print("📝 Генерация ежедневного сообщения")
+        print("📝 Generating daily message")
 
     # Check for empty message (fallback text)
     message_text = message_data.get("text", "")
     if (
-        "_Нет задач на сегодня_" in message_text
-        or "_Нет обычных задач на сегодня_" in message_text
+        MESSAGE_TEMPLATES["no_tasks_today"] in message_text
+        or MESSAGE_TEMPLATES["no_regular_tasks"] in message_text
     ):
-        print("⚠️ Задачи не найдены в Redis, используем резервную логику")
+        print("⚠️ Tasks not found in Redis, using fallback logic")
         date_str = today.strftime("%d %B (%A)")
 
-        empty_redis_message = ["No tasks found in Redis, check BD"]
+        empty_redis_message = [MESSAGE_TEMPLATES["redis_fallback"]]
 
         header = f"🎓 Routine tasks for *{date_str}*"
         fallback_text = header + "\n\n" + "\n".join(empty_redis_message)
@@ -66,17 +67,17 @@ if __name__ == "__main__":
             )
             message_ts = response["ts"]
             set_thread_ts(message_ts)
-            print("✅ Сообщение отправлено в Slack")
+            print("✅ Message sent to Slack")
 
             # Pin Monday message with weekly duty assignments
             if is_monday:
                 try:
                     client.pins_add(channel=CHANNEL_ID, timestamp=message_ts)
-                    print("📌 Понедельничное сообщение закреплено в канале")
+                    print("📌 Monday message pinned to channel")
                 except Exception as pin_error:
-                    print(f"⚠️ Не удалось закрепить сообщение: {pin_error}")
+                    print(f"⚠️ Could not pin message: {pin_error}")
 
         except Exception as e:
-            print(f"❌ Ошибка при отправке сообщения: {e}")
+            print(f"❌ Error sending message: {e}")
     else:
-        print("Сегодня выходной, задачи не отправляются")
+        print(MESSAGE_TEMPLATES["weekend_skip"])

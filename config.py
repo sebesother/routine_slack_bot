@@ -23,7 +23,7 @@ class Config:
     # Timezone
     TIMEZONE: str = "Europe/Riga"
 
-    # Team Mention (hardcoded for now)
+    # Team Mention
     TEAM_MENTION: str = "<!subteam^S07BD1P55GT|@sup>"
 
     # Duty Types
@@ -34,6 +34,16 @@ class Config:
         "notification": "NOTIFICATION-DUTY",
         "supervision": "SUPERVISION-DUTY",
     }
+
+    # Working Days (0=Monday, 4=Friday)
+    WORK_DAYS: list = [0, 1, 2, 3, 4]
+
+    # Reminder Configuration
+    REMINDER_TIME: int = 13  # Hour when reminder is sent
+    LATE_DEADLINE_THRESHOLD: int = 16  # Tasks with deadline >= 16:00 are hidden at 13:00 reminder
+    
+    # Task Completion Validation
+    MIN_WORKING_DAYS_FOR_DUTY: int = 3  # Minimum days employee must work to be assigned duty
 
     # Logging
     LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO")
