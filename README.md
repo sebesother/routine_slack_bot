@@ -1,24 +1,13 @@
 # Routine Slack Bot
 
-A comprehensive Slack bot system for daily task tracking, completion monitoring, automated reminders, and weekly duty assignments.
-
-## Overview
-
-This bot system helps teams manage daily routines by:
-- Posting morning task lists to Slack channels
-- Tracking task completion through @mentions
-- Sending reminders for incomplete or overdue tasks
-- Managing weekly duty assignments (Fin-duty, Asana-duty, TG-duty, etc.)
-- Automatic pinning of Monday weekly schedules
-- Special date notifications (holidays, special events)
-- Supporting debug mode for testing workflows
+A Slack bot for managing team's daily tasks with automatic list posting, completion tracking, and reminders.
 
 ## Components
 
-- **main_bot.py** - Interactive bot handling task completion via @mentions and duty assignments
-- **cron_bot.py** - Daily cron job posting morning task lists (weekly on Monday, daily on Tue-Fri)
-- **reminder_bot.py** - Automated reminder system for incomplete tasks
-- **redis_bot.py** - Central data layer managing Redis storage
+- **main_bot.py** - Interactive bot (task completion via mentions and modal window, duty management)
+- **cron_bot.py** - Morning task posting (Monday - weekly schedule with duties, Tuesday-Friday - daily tasks)
+- **reminder_bot.py** - Automatic reminders for incomplete tasks
+- **redis_bot.py** - Data layer for Redis operations
 
 ## Setup
 
@@ -27,7 +16,7 @@ This bot system helps teams manage daily routines by:
    pip install -r requirements.txt
    ```
 
-2. Set environment variables:
+2. Configure environment variables:
    ```bash
    export SLACK_BOT_TOKEN="xoxb-..."
    export SLACK_APP_TOKEN="xapp-..."
@@ -35,99 +24,109 @@ This bot system helps teams manage daily routines by:
    export REDIS_URL="redis://..."
    ```
 
-3. Run components:
+3. Run the bot:
    ```bash
-   # Interactive bot
    python main_bot.py
+   ```
+
+4. Setup cron for automatic posting:
+   ```bash
+   # Post tasks at 09:00 on weekdays
+   0 9 * * 1-5 cd /path/to/bot && python cron_bot.py
    
-   # Daily task poster (via cron)
-   python cron_bot.py
-   
-   # Reminder system (via cron)
-   python reminder_bot.py
+   # Reminders at 13:00 on weekdays
+   0 13 * * 1-5 cd /path/to/bot && python reminder_bot.py
    ```
 
 ## Usage
 
 ### Task Completion
 
-**Interactive Modal (recommended):**
-1. Click "✅ Отметить выполненные" button in daily message
-2. Select completed tasks from checklist
-3. Submit to mark multiple tasks at once
+**Via modal window (recommended):**
+1. Click "✅ Отметить выполненные"
+2. Select tasks from the list
+3. Submit the form
 
-**Text Command (alternative):**
-- `@bot TaskName done` - Mark single task as complete
+**Via mention:**
+```
+@bot Task Name done
+```
 
 ### Debug Mode
 
-Test all functionality without affecting production data:
-
 ```
-@bot debug              # Test today's message
-@bot debug monday       # Test Monday weekly message with duties
-@bot debug tuesday      # Test Tuesday message
-@bot debug weekly       # Same as debug monday
+@bot debug              # Today's message
+@bot debug monday       # Monday message with duties
+@bot debug tuesday      # Tuesday message
 ```
 
-**Debug features:**
-- Uses separate Redis state (`debug_routine_state`)
-- Messages prefixed with "🔧 DEBUG:"
-- Creates separate thread for testing
-- Interactive button works in debug mode
-- Can test special dates and late task warnings
+Uses separate Redis state (`debug_routine_state`) and doesn't affect production.
 
-### Weekly Duty Management
+### Duty Management
 
-The `/set-duty` command manages weekly duty assignments (Fin-duty, Asana-duty, TG-duty, Notification-duty, Supervision-duty).
-
-**Assign duty for current week:**
-```
+```bash
+# Assign duty for current week
 /set-duty fin @username current
-```
 
-**Assign duty for next week:**
-```
+# Assign for next week
 /set-duty asana @username next
-```
 
-**Assign duty for specific week (by Monday date):**
-```
+# Assign for specific week (Monday date)
 /set-duty tg @username 09/12
-```
 
-**Remove duty assignment:**
-```
+# Remove assignment
 /set-duty fin current
-/set-duty asana 16/12
 ```
 
-**Available duty types:**
-- `fin` - Fin-duty (Financial tasks, Statements)
-- `asana` - Asana-duty (Task management in Asana)
-- `tg` - TG-duty (Telegram monitoring)
-- `notification` - Notification-duty (Slack notifications management)
-- `supervision` - Supervision-duty (Oversight and control)
+**Duty types:** `fin`, `asana`, `tg`, `notification`, `supervision`
 
-**Week specification:**
-- `current` - Current week
-- `next` - Next week
-- `dd/mm` - Specific Monday date (e.g., `09/12`)
+## Data Structure
 
-### Special Features
+### task_base.json
+```json
+{
+  "1": {
+    "name": "Task Name",
+    "deadline": "12:00",
+    "days": "all",              // "all" or "monday,friday"
+    "period": "morning",         // "morning" or "evening"
+    "type": "regular",
+    "asana_url": "https://...",
+    "comments": "Description"
+  }
+}
+```
 
-- **Monday Messages**: Weekly schedule with duty assignments, automatically pinned
-- **Tuesday-Friday Messages**: Daily tasks only
-- **Special Dates**: Automatic holiday notifications with emoji (Christmas 🎄✨, New Year 🎆❄️)
-- **Timezone-aware**: All operations use Europe/Riga timezone
-- **Weekday-only**: Operates Monday-Friday
+### employees.json
+```json
+{
+  "dates": {
+    "09/12": {
+      "morning": ["U123ABC", "U456DEF"],
+      "evening": ["U789GHI"]
+    }
+  },
+  "weekly_duties": {
+    "09/12": {
+      "FIN-DUTY": "U123ABC",
+      "ASANA-DUTY": "U456DEF"
+    }
+  }
+}
+```
 
-## Data Storage
+## Loading Data to Redis
 
-Tasks stored in Redis with structure supporting:
-- Deadlines and day restrictions
-- Asana integration
-- Task types (regular/duty)
-- Weekly duty assignments
-- Special dates (holidays, events)
-- Employee schedules (morning/evening shifts)
+```bash
+cd ignore_data
+python upload_task_base.py
+python upload_employees.py
+```
+
+## Features
+
+- Works on weekdays only (Mon-Fri)
+- Timezone: Europe/Riga
+- Monday messages are automatically pinned
+- Special dates support with emoji
+- Task grouping by periods (morning/evening)
