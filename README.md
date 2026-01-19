@@ -43,7 +43,7 @@ A Slack bot for managing team's daily tasks with automatic list posting, complet
 ### Task Completion
 
 **Via modal window (recommended):**
-1. Click "✅ Отметить выполненные"
+1. Click ✅
 2. Select tasks from the list
 3. Submit the form
 
