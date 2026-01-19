@@ -134,13 +134,11 @@ def get_tasks_for_day(day_name):
     for task_id, task_data in task_base.items():
         # Check if task should be executed on this day
         task_days = task_data.get("days", "all")
-        if task_days == "all" or day_name in task_days:
+        if task_days == "all" or day_name.lower() in task_days.lower():
             # Add task ID to the data
             task_with_id = task_data.copy()
             task_with_id["id"] = task_id
             tasks.append(task_with_id)
-
-    return tasks
 
     # Sort by deadline time
     tasks.sort(key=lambda x: x.get("deadline", "23:59"))
