@@ -177,22 +177,18 @@ def send_remote_summary(detailed: bool = False) -> bool:
 
 
 if __name__ == "__main__":
-    # Check if it's Friday
+    # Cron scheduling is managed by hosting service (Railways)
+    # This script runs whenever triggered by cron
     today = datetime.datetime.now()
+    current_time = today.strftime("%H:%M")
+    
+    print(f"⏰ Running remote summary at {current_time}")
+    print(f"📅 Sending next week's remote schedule...")
 
-    if today.weekday() == 4:  # Friday
-        current_time = today.strftime("%H:%M")
-        print(f"⏰ Running remote summary at {current_time}")
-        print(f"📅 Today is Friday, sending next week's remote schedule...")
+    # Send detailed summary with statistics
+    success = send_remote_summary(detailed=True)
 
-        # Send detailed summary with statistics
-        success = send_remote_summary(detailed=True)
-
-        if success:
-            print("✅ Remote summary successfully sent")
-        else:
-            print("❌ Failed to send remote summary")
+    if success:
+        print("✅ Remote summary successfully sent")
     else:
-        weekday = today.strftime("%A")
-        print(f"ℹ️ Today is {weekday}, not Friday. Remote summary is only sent on Fridays.")
-        print("💡 To test manually, run: python -c 'from remote_summary_bot import send_remote_summary; send_remote_summary(detailed=True)'")
+        print("❌ Failed to send remote summary")
