@@ -156,18 +156,39 @@ def set_remote_days_for_employee(
     """
     employees = load_employees()
     
-    # Find employee by slack_user_id if employee_id not in database
-    if employee_id and employee_id not in employees:
+    logger.info(f"Looking for employee with slack_user_id: {slack_user_id}")
+    logger.info(f"Total entries in employees: {len(employees)}")
+    
+    # Find employee by slack_user_id if employee_id is None or not in database
+    if not employee_id or employee_id not in employees:
         # Try to find by slack_id
+        found = False
         for emp_id, emp_data in employees.items():
             # Skip non-employee entries
             if emp_id in ["task_assignments", "weekly_duty_assignments", "special_dates"]:
+                logger.debug(f"Skipping special key: {emp_id}")
                 continue
-            if isinstance(emp_data, dict) and emp_data.get("slack_id") == slack_user_id:
+            if not isinstance(emp_data, dict):
+                logger.debug(f"Skipping non-dict entry: {emp_id}")
+                continue
+            
+            emp_slack_id = emp_data.get("slack_id", "")
+            emp_name = emp_data.get("name", "")
+            logger.debug(f"Checking employee {emp_id} ({emp_name}): slack_id={emp_slack_id}")
+            
+            if emp_slack_id == slack_user_id:
                 employee_id = emp_id
+                found = True
+                logger.info(f"✅ Found employee {emp_name} (ID: {emp_id}) by slack_id {slack_user_id}")
                 break
+        
+        if not found:
+            logger.warning(f"❌ Employee not found for slack_id: {slack_user_id}")
+            logger.warning(f"Available employees: {[(k, v.get('name', ''), v.get('slack_id', '')) for k, v in employees.items() if isinstance(v, dict) and 'name' in v]}")
+            return False, f"❌ Employee not found"
     
-    if not employee_id or employee_id not in employees:
+    # Double-check employee exists
+    if employee_id not in employees:
         return False, f"❌ Employee not found"
     
     # Validate selection
