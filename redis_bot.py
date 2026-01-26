@@ -13,6 +13,7 @@ from constants import (
     MODAL_TEXT,
     PERIOD_LABELS,
     PERIOD_EMOJI,
+    REMOTE_MODAL_TEXT,
     SPECIAL_DATE_CONFIG,
     WEEKDAY_NAMES_EN,
 )
@@ -191,6 +192,8 @@ def format_task_line(task):
 
 def generate_message_from_redis(day_override=None, debug_mode=False):
     """Generate Slack message based on Redis data with grouping and employees."""
+    from remote_bot import get_remote_employees_for_date, format_remote_employees_mention
+    
     today = datetime.datetime.now()
 
     if day_override:
@@ -219,6 +222,12 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
 
     # If no tasks
     if not tasks:
+        # Still show remote employees if any
+        remote_employees = get_remote_employees_for_date(current_date)
+        remote_mention = format_remote_employees_mention(remote_employees)
+        
+        if remote_mention:
+            return header + "\n\n" + MESSAGE_TEMPLATES["no_tasks_today"] + f"\n\n{remote_mention}"
         return header + "\n\n" + MESSAGE_TEMPLATES["no_tasks_today"]
 
     # Group tasks
@@ -237,11 +246,24 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
         # Get employees for morning shift
         morning_employees = get_employees_for_date_and_period(current_date, "morning")
         employees_mention = format_employees_mention(morning_employees)
+        
+        # Get remote employees for today
+        remote_employees = get_remote_employees_for_date(current_date)
+        
+        # Filter remote employees who are working morning shift
+        morning_remote = [emp for emp in remote_employees if any(
+            e["slack_id"] == emp["slack_id"] for e in morning_employees
+        )]
 
         if employees_mention:
             message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:\n{employees_mention}")
         else:
             message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:")
+        
+        # Add remote notice if any
+        if morning_remote:
+            remote_mention = format_remote_employees_mention(morning_remote)
+            message_parts.append(remote_mention)
 
         for task in grouped_tasks["morning"]:
             message_parts.append(format_task_line(task))
@@ -251,6 +273,14 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
         # Get employees for evening shift
         evening_employees = get_employees_for_date_and_period(current_date, "evening")
         employees_mention = format_employees_mention(evening_employees)
+        
+        # Get remote employees for today
+        remote_employees = get_remote_employees_for_date(current_date)
+        
+        # Filter remote employees who are working evening shift
+        evening_remote = [emp for emp in remote_employees if any(
+            e["slack_id"] == emp["slack_id"] for e in evening_employees
+        )]
 
         if employees_mention:
             message_parts.append(
@@ -258,6 +288,11 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
             )
         else:
             message_parts.append(f"\n*{PERIOD_LABELS['evening']}*:")
+        
+        # Add remote notice if any
+        if evening_remote:
+            remote_mention = format_remote_employees_mention(evening_remote)
+            message_parts.append(remote_mention)
 
         for task in grouped_tasks["evening"]:
             message_parts.append(format_task_line(task))
@@ -267,14 +302,14 @@ def generate_message_from_redis(day_override=None, debug_mode=False):
 
 def generate_message_blocks(day_override=None, debug_mode=False):
     """
-    Generate Slack message in Block Kit format with interactive button.
+    Generate Slack message in Block Kit format with interactive buttons.
 
     Returns dict with 'text' (fallback) and 'blocks' (Block Kit).
     """
     # Get regular text message
     message_text = generate_message_from_redis(day_override, debug_mode)
 
-    # Create blocks with completion button
+    # Create blocks with completion button and remote days button
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": message_text}},
         {
@@ -285,7 +320,12 @@ def generate_message_blocks(day_override=None, debug_mode=False):
                     "text": {"type": "plain_text", "text": MODAL_TEXT["button_label"]},
                     "action_id": "open_task_completion_modal",
                     "style": "primary",
-                }
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": REMOTE_MODAL_TEXT["button_label"]},
+                    "action_id": "open_remote_days_modal",
+                },
             ],
         },
     ]
@@ -295,14 +335,14 @@ def generate_message_blocks(day_override=None, debug_mode=False):
 
 def generate_weekly_message_blocks(debug_mode=False):
     """
-    Generate Monday's weekly message in Block Kit format with interactive button.
+    Generate Monday's weekly message in Block Kit format with interactive buttons.
 
     Returns dict with 'text' (fallback) and 'blocks' (Block Kit).
     """
     # Get regular text message
     message_text = generate_weekly_message_from_redis(debug_mode)
 
-    # Create blocks with completion button
+    # Create blocks with completion button and remote days button
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": message_text}},
         {
@@ -313,7 +353,12 @@ def generate_weekly_message_blocks(debug_mode=False):
                     "text": {"type": "plain_text", "text": MODAL_TEXT["button_label"]},
                     "action_id": "open_task_completion_modal",
                     "style": "primary",
-                }
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": REMOTE_MODAL_TEXT["button_label"]},
+                    "action_id": "open_remote_days_modal",
+                },
             ],
         },
     ]
@@ -899,6 +944,8 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
         message_parts.append("\n" + MESSAGE_TEMPLATES["no_regular_tasks"])
     else:
         message_parts.append("\n📝 Tasks for today:")
+        
+        from remote_bot import get_remote_employees_for_date, format_remote_employees_mention
 
         grouped_tasks = group_tasks_by_period(regular_tasks)
 
@@ -913,11 +960,24 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
                 current_date, "morning"
             )
             employees_mention = format_employees_mention(morning_employees)
+            
+            # Get remote employees for today
+            remote_employees = get_remote_employees_for_date(current_date)
+            
+            # Filter remote employees who are working morning shift
+            morning_remote = [emp for emp in remote_employees if any(
+                e["slack_id"] == emp["slack_id"] for e in morning_employees
+            )]
 
             if employees_mention:
                 message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:\n{employees_mention}")
             else:
                 message_parts.append(f"\n*{PERIOD_LABELS['morning']}*:")
+            
+            # Add remote notice if any
+            if morning_remote:
+                remote_mention = format_remote_employees_mention(morning_remote)
+                message_parts.append(remote_mention)
 
             for task in grouped_tasks["morning"]:
                 message_parts.append(format_task_line(task))
@@ -928,6 +988,14 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
                 current_date, "evening"
             )
             employees_mention = format_employees_mention(evening_employees)
+            
+            # Get remote employees for today
+            remote_employees = get_remote_employees_for_date(current_date)
+            
+            # Filter remote employees who are working evening shift
+            evening_remote = [emp for emp in remote_employees if any(
+                e["slack_id"] == emp["slack_id"] for e in evening_employees
+            )]
 
             if employees_mention:
                 message_parts.append(
@@ -935,6 +1003,11 @@ def generate_weekly_message_from_redis(debug_mode: bool = False) -> str:
                 )
             else:
                 message_parts.append(f"\n*{PERIOD_LABELS['evening']}*:")
+            
+            # Add remote notice if any
+            if evening_remote:
+                remote_mention = format_remote_employees_mention(evening_remote)
+                message_parts.append(remote_mention)
 
             for task in grouped_tasks["evening"]:
                 message_parts.append(format_task_line(task))

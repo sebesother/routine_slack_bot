@@ -14,6 +14,7 @@ from constants import (
     MESSAGE_TEMPLATES,
     COMMAND_HELP,
     MODAL_TEXT,
+    REMOTE_MODAL_TEXT,
 )
 from redis_bot import (
     find_employee_by_username,
@@ -591,6 +592,151 @@ def handle_modal_submission(ack, body, client, view):
 
     except Exception as e:
         logger.error(f"Error handling modal submission: {e}")
+
+
+@app.action("open_remote_days_modal")
+def handle_open_remote_modal(ack, body, client):
+    """Handle button click to open remote days selection modal."""
+    ack()
+
+    try:
+        from remote_bot import (
+            get_next_monday,
+            get_week_dates_from_monday,
+            get_weekday_name_from_date,
+        )
+
+        # Get next week's Monday
+        next_monday = get_next_monday()
+        week_dates = get_week_dates_from_monday(next_monday)
+
+        logger.info(f"Opening remote days modal for week starting {next_monday}")
+
+        # Build checkbox options for Monday-Friday of next week
+        options = []
+        weekday_labels = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        
+        for i, date_str in enumerate(week_dates[:5]):  # Only Mon-Fri
+            weekday = weekday_labels[i]
+            options.append(
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"{weekday} ({date_str})",
+                    },
+                    "value": date_str,
+                }
+            )
+
+        # Create modal view
+        modal_view = {
+            "type": "modal",
+            "callback_id": "remote_days_submit",
+            "title": {"type": "plain_text", "text": REMOTE_MODAL_TEXT["title"]},
+            "submit": {"type": "plain_text", "text": REMOTE_MODAL_TEXT["submit"]},
+            "close": {"type": "plain_text", "text": REMOTE_MODAL_TEXT["cancel"]},
+            "private_metadata": next_monday,  # Pass next Monday date
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": REMOTE_MODAL_TEXT["info_text"]},
+                },
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": REMOTE_MODAL_TEXT["select_label"]},
+                },
+                {
+                    "type": "input",
+                    "block_id": "days_selection",
+                    "optional": True,
+                    "element": {
+                        "type": "checkboxes",
+                        "action_id": "selected_days",
+                        "options": options,
+                    },
+                    "label": {"type": "plain_text", "text": REMOTE_MODAL_TEXT["days_label"]},
+                },
+            ],
+        }
+
+        # Open modal
+        client.views_open(trigger_id=body["trigger_id"], view=modal_view)
+        logger.info(LOG_MESSAGES["remote_modal_opened"])
+
+    except Exception as e:
+        logger.error(f"Error opening remote days modal: {e}")
+
+
+@app.view("remote_days_submit")
+def handle_remote_modal_submission(ack, body, client, view):
+    """Handle remote days modal submission."""
+    try:
+        from remote_bot import set_remote_days_for_employee
+
+        user_id = body["user"]["id"]
+
+        # Get next Monday from private_metadata
+        next_monday = view.get("private_metadata", "")
+
+        # Get selected days
+        values = view["state"]["values"]
+        days_selection = values.get("days_selection", {}).get("selected_days", {})
+        selected_options = days_selection.get("selected_options", [])
+
+        # Extract selected dates
+        selected_dates = [option["value"] for option in selected_options]
+
+        # Validate selection
+        if len(selected_dates) > 2:
+            ack(
+                response_action="errors",
+                errors={
+                    "days_selection": "You can select maximum 2 days per week"
+                },
+            )
+            return
+
+        if len(selected_dates) == 0:
+            ack(
+                response_action="errors",
+                errors={
+                    "days_selection": "Please select at least one day"
+                },
+            )
+            return
+
+        # Acknowledge the submission
+        ack()
+
+        # Set remote days for the user
+        success, message = set_remote_days_for_employee(
+            employee_id=None,  # Will be found by slack_user_id
+            slack_user_id=user_id,
+            week_monday=next_monday,
+            remote_dates=selected_dates,
+        )
+
+        # Get thread_ts for the current daily message
+        thread_ts = get_thread_ts(debug_mode=False)
+
+        # Send confirmation message
+        if thread_ts:
+            if success:
+                confirmation = f"<@{user_id}> {message}"
+            else:
+                confirmation = f"<@{user_id}> {message}"
+
+            client.chat_postMessage(
+                channel=Config.SLACK_CHANNEL_ID,
+                text=confirmation,
+                thread_ts=thread_ts,
+            )
+
+        logger.info(LOG_MESSAGES["remote_modal_submission"].format(user=user_id))
+
+    except Exception as e:
+        logger.error(f"Error handling remote days modal submission: {e}")
+        ack()
 
 
 if __name__ == "__main__":

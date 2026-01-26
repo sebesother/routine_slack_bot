@@ -105,6 +105,18 @@ MODAL_TEXT = {
     "button_label": "✅ Mark completed",
 }
 
+# Remote work modal UI text
+REMOTE_MODAL_TEXT = {
+    "title": "Mark Remote Days",
+    "title_debug": "🔧 DEBUG: Mark Remote Days",
+    "submit": "Set Remote Days",
+    "cancel": "Cancel",
+    "select_label": "Select remote work days for *next week* (max 2):",
+    "days_label": "Days",
+    "button_label": "🏠 Mark Remote Days",
+    "info_text": "_You can select up to 2 days for remote work next week (Monday-Friday)_",
+}
+
 # Debug mode prefixes
 DEBUG_PREFIX = "🔧 DEBUG: "
 
@@ -120,4 +132,6 @@ LOG_MESSAGES = {
     "task_completion_modal_opened": "Task completion modal opened",
     "modal_submission_debug": "Modal submission in DEBUG mode",
     "modal_submission_production": "Modal submission in PRODUCTION mode",
+    "remote_modal_opened": "Remote days modal opened",
+    "remote_modal_submission": "Remote days set by user {user}",
 }
