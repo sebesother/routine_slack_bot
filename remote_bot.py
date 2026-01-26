@@ -160,6 +160,9 @@ def set_remote_days_for_employee(
     if employee_id and employee_id not in employees:
         # Try to find by slack_id
         for emp_id, emp_data in employees.items():
+            # Skip non-employee entries
+            if emp_id in ["task_assignments", "weekly_duty_assignments", "special_dates"]:
+                continue
             if isinstance(emp_data, dict) and emp_data.get("slack_id") == slack_user_id:
                 employee_id = emp_id
                 break

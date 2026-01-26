@@ -495,6 +495,10 @@ def get_employees_for_date_and_period(
     working_employees = []
 
     for emp_id, emp_data in employees.items():
+        # Skip non-employee entries
+        if not isinstance(emp_data, dict) or "name" not in emp_data:
+            continue
+
         name = emp_data.get("name", "")
         slack_id = emp_data.get("slack_id", "")
 
@@ -603,7 +607,10 @@ def find_employee_by_username(username: str) -> str:
     clean_username = username.lstrip("@").strip()
 
     for emp_id, emp_data in employees.items():
-        if emp_id == "task_assignments":
+        # Skip non-employee entries
+        if emp_id in ["task_assignments", "weekly_duty_assignments", "special_dates"]:
+            continue
+        if not isinstance(emp_data, dict) or "name" not in emp_data:
             continue
 
         emp_username = emp_data.get("username", "")
@@ -783,7 +790,10 @@ def validate_employee_for_duty(user_id: str, week_monday: str) -> Tuple[bool, st
     # Find employee by slack_id
     employee = None
     for emp_id, emp_data in employees.items():
-        if emp_id in ["task_assignments", "weekly_duty_assignments"]:
+        # Skip non-employee entries
+        if emp_id in ["task_assignments", "weekly_duty_assignments", "special_dates"]:
+            continue
+        if not isinstance(emp_data, dict) or "name" not in emp_data:
             continue
         if emp_data.get("slack_id") == user_id:
             employee = emp_data
