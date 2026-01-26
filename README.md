@@ -7,7 +7,9 @@ A Slack bot for managing team's daily tasks with automatic list posting, complet
 - **main_bot.py** - Interactive bot (task completion via mentions and modal window, duty management)
 - **cron_bot.py** - Morning task posting (Monday - weekly schedule with duties, Tuesday-Friday - daily tasks)
 - **reminder_bot.py** - Automatic reminders for incomplete tasks
+- **remote_summary_bot.py** - Weekly remote work schedule summary (sent on Fridays)
 - **redis_bot.py** - Data layer for Redis operations
+- **remote_bot.py** - Remote work days management
 
 ## Setup
 
@@ -22,6 +24,8 @@ A Slack bot for managing team's daily tasks with automatic list posting, complet
    export SLACK_APP_TOKEN="xapp-..."
    export SLACK_CHANNEL_ID="C..."
    export REDIS_URL="redis://..."
+   # Optional: Override default remote summary channel
+   export REMOTE_SUMMARY_CHANNEL_ID="C01VAR1KUS1"
    ```
 
 3. Run the bot:
@@ -36,14 +40,34 @@ A Slack bot for managing team's daily tasks with automatic list posting, complet
    
    # Reminders at 13:00 on weekdays
    0 13 * * 1-5 cd /path/to/bot && python reminder_bot.py
+   
+   # Remote summary on Fridays at 16:00
+   0 16 * * 5 cd /path/to/bot && python remote_summary_bot.py
    ```
+
+5. **Add bot to channels:**
+   
+   The bot needs to be added as a member to channels where it will post messages:
+   
+   - Open the Slack channel (e.g., `C01VAR1KUS1` for remote summaries)
+   - Click on channel name → "Integrations" tab
+   - Click "Add apps"
+   - Search for your bot name and click "Add"
+   
+   Alternatively, type in the channel: `/invite @YourBotName`
+   
+   **Required permissions:**
+   - `chat:write` - to send messages
+   - `channels:read` - to access channel info
+   
+   Without adding the bot to the channel, you'll get an error: `not_in_channel`
 
 ## Usage
 
 ### Task Completion
 
 **Via modal window (recommended):**
-1. Click ✅
+1. Click ✅ "Complete Task"
 2. Select tasks from the list
 3. Submit the form
 
@@ -51,6 +75,21 @@ A Slack bot for managing team's daily tasks with automatic list posting, complet
 ```
 @bot Task Name done
 ```
+
+### Remote Work Days
+
+**Setting remote days:**
+1. Click 🏠 "Mark Remote Days" button in daily message
+2. Select up to 2 days from next week (Monday-Friday)
+3. Submit the form
+
+Remote days are automatically included in daily messages and sent as a weekly summary every Friday.
+
+**Weekly summary:**
+- Sent automatically every Friday at 16:00 (configurable via cron)
+- Shows all remote work days for the next week
+- Includes statistics (total days, unique employees)
+- Posted to configured channel (default: `C01VAR1KUS1`)
 
 ### Debug Mode
 

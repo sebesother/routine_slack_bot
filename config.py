@@ -10,6 +10,7 @@ class Config:
     SLACK_BOT_TOKEN: str = os.environ.get("SLACK_BOT_TOKEN", "")
     SLACK_APP_TOKEN: str = os.environ.get("SLACK_APP_TOKEN", "")
     SLACK_CHANNEL_ID: str = os.environ.get("SLACK_CHANNEL_ID", "")
+    REMOTE_SUMMARY_CHANNEL_ID: str = os.environ.get("REMOTE_SUMMARY_CHANNEL_ID", "C01VAR1KUS1")
 
     # Redis Configuration
     REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379")
